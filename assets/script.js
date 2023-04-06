@@ -6,14 +6,19 @@ if (mltTranslate.length) {
         button.addEventListener('click', (e) => {
             e.preventDefault();
 
-            let parent = button.parentElement;
-            let addByIdWrapper = parent.nextSibling;
-            let addById = addByIdWrapper.querySelector('.mltAddById');
-            let addByIdInput = addByIdWrapper.querySelector('input');
+            let parent = button.parentElement,
+                addByIdWrapper = parent.nextSiblingm,
+                addById,
+                addByIdInput;
+
+            if (addByIdWrapper) {
+                addById = addByIdWrapper.querySelector('.mltAddById');
+                addByIdInput = addByIdWrapper.querySelector('input');
+                addById.setAttribute('disabled', 'disabled');
+                addByIdInput.setAttribute('disabled', 'disabled');
+            }
 
             button.setAttribute('disabled', 'disabled');
-            addById.setAttribute('disabled', 'disabled');
-            addByIdInput.setAttribute('disabled', 'disabled');
             button.nextSibling.classList.add('is-active');
 
             fetch(mlt.ajaxurl, {
@@ -34,7 +39,9 @@ if (mltTranslate.length) {
                     console.log(data);
                     if (success) {
                         parent.innerHTML = data;
-                        addByIdWrapper.remove();
+                        if (addByIdWrapper) {
+                            addByIdWrapper.remove();
+                        }
                     } else {
                         throw new Error(data);
                     }
