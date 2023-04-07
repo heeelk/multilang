@@ -11,22 +11,40 @@ class Multilang {
 
 		register_activation_hook( __DIR__ . '/multilang-plugin.php', array( $this, 'activation' ) );
 
+		add_action( 'init', array( $this, 'init' ), 99 );
 		add_action( 'wp_head', array( $this, 'add_alternate_links' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'add_scripts' ) );
 		add_action( 'admin_notices', array( $this, 'notice' ) );
 		add_action( 'network_admin_menu', array( $this, 'add_menu_item' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
-		add_action( 'manage_posts_custom_column', array( $this, 'post_column_content' ), 10, 2 );
-		add_action( 'manage_pages_custom_column', array( $this, 'post_column_content' ), 10, 2 );
 		add_action( 'add_meta_boxes', array( $this, 'add_meta_boxes' ) );
 		add_action( 'delete_post', array( $this, 'remove_post_to_post' ), 10, 2 );
 		add_action( 'delete_term', array( $this, 'remove_term_to_term' ), 10, 1 );
 
 		add_action( 'wp_ajax_mlt_generate', array( $this, 'generate' ) );
 		add_action( 'wp_ajax_mlt_add_post_by_id', array( $this, 'add_post_by_id' ) );
+		add_action( 'wp_ajax_mlt_remove_id', array( $this, 'remove_by_id' ) );
 
+		// custom columns
 		add_filter( 'manage_posts_columns', array( $this, 'add_post_column' ) );
 		add_filter( 'manage_pages_columns', array( $this, 'add_post_column' ) );
+		add_action( 'manage_posts_custom_column', array( $this, 'post_column_content' ), 10, 2 );
+		add_action( 'manage_pages_custom_column', array( $this, 'post_column_content' ), 10, 2 );
+	}
+
+	public function init() {
+		$taxonomies = get_taxonomies();
+		unset( $taxonomies['nav_menu'] );
+		unset( $taxonomies['link_category'] );
+		unset( $taxonomies['post_format'] );
+		unset( $taxonomies['wp_theme'] );
+		unset( $taxonomies['wp_template_part_area'] );
+
+		foreach ( $taxonomies as $taxonomy ) {
+			add_filter( "manage_edit-{$taxonomy}_columns", array( $this, 'add_post_column' ) );
+			add_filter( "manage_{$taxonomy}_custom_column", array( $this, 'tax_column_content' ), 10, 3 );
+			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 2 );
+		}
 	}
 
 	public function get_languages() : array {
@@ -212,6 +230,66 @@ class Multilang {
 		return $columns;
 	}
 
+	public function tax_column_content( $content, $column_name, $term_id ) {
+		if ( $this->sites_count < 2 ) {
+			return;
+		}
+
+		foreach ( $this->get_sites() as $site ) {
+			$blog_id = (int) $site->blog_id;
+
+			if ( $blog_id === $this->current_blog_id ) {
+				continue;
+			}
+
+			$name = "mlt_lang_$blog_id";
+
+			if ( $column_name === $name ) {
+				if ( $to_term_id = (int) $this->get_id_from_table( $term_id, $blog_id, 'mlt_term_to_term' ) ) {
+					echo $this->button_edit( $to_term_id, $blog_id, 'term' );
+					echo $this->button_remove( $term_id, $to_term_id, $blog_id, 'term' );
+				} elseif ( $this->current_blog_id === 1 ) {
+					echo $this->button_clone( $term_id, $blog_id, 'term' );
+					echo $this->button_add_by_id( $term_id, $blog_id, 'term' );
+				} else {
+					echo '-';
+				}
+			}
+		}
+	}
+
+	public function tax_edit_form_content( $term, $taxonomy ) {
+		if ( $this->sites_count < 2 ) {
+			return;
+		}
+
+		echo '<tr><th><h2>Multilang</h2></th></tr>';
+
+		foreach ( $this->get_sites() as $site ) {
+			$blog_id = (int) $site->blog_id;
+			if ( $blog_id === $this->current_blog_id ) {
+				continue;
+			}
+
+			$name = "mlt_lang_{$blog_id}";
+
+			echo '<tr class="form-field">';
+			echo '<th scope="row" style="vertical-align: middle">' . strtoupper( get_network_option( 1, $name ) ) . '</th>';
+			echo '<td style="display: inline-block">';
+			if ( $to_term_id = (int) $this->get_id_from_table( $term->term_id, $blog_id, 'mlt_term_to_term' ) ) {
+				echo $this->button_edit( $to_term_id, $blog_id, 'term' );
+				echo $this->button_remove( $term->term_id, $to_term_id, $blog_id, 'term' );
+			} elseif ( $this->current_blog_id === 1 ) {
+				echo $this->button_clone( $term->term_id, $blog_id, 'term' );
+				echo $this->button_add_by_id( $term->term_id, $site->blog_id, 'term' );
+			} else {
+				echo '-';
+			}
+			echo '</td>';
+			echo '</tr>';
+		}
+	}
+
 	public function post_column_content( $column_name, $post_id ) {
 		if ( $this->sites_count < 2 ) {
 			return;
@@ -229,8 +307,10 @@ class Multilang {
 			if ( $column_name === $name ) {
 				if ( $to_post_id = (int) $this->get_id_from_table( $post_id, $blog_id, 'mlt_post_to_post' ) ) {
 					echo $this->button_edit( $to_post_id, $blog_id );
+					echo $this->button_remove( $post_id, $to_post_id, $blog_id );
 				} elseif ( $this->current_blog_id === 1 ) {
-					echo $this->button_translate( $post_id, $blog_id );
+					echo $this->button_clone( $post_id, $blog_id );
+					echo $this->button_add_by_id( $post_id, $blog_id );
 				} else {
 					echo '-';
 				}
@@ -251,9 +331,10 @@ class Multilang {
 			$html       = '-';
 			if ( $to_post_id ) {
 				$html = $this->button_edit( $to_post_id, $site->blog_id );
+				$html .= $this->button_remove( $post->ID, $to_post_id, $site->blog_id );
 			} elseif ( $this->current_blog_id === 1 ) {
-				$html = $this->button_translate( $post->ID, $site->blog_id );
-				$html .= '<div class="mlt-add-by-id"><input type="number" name="add_id" placeholder="Add by ID"><button class="mltAddById button button-secondary" data-post_id="' . $post->ID . '" data-blog_id="' . $site->blog_id . '">+</button><span class="spinner"></span></div>';
+				$html = $this->button_clone( $post->ID, $site->blog_id );
+				$html .= $this->button_add_by_id( $post->ID, $site->blog_id );
 			}
 
 			printf(
@@ -295,22 +376,61 @@ class Multilang {
 		$this->remove_id_from_table( $post_id, $table );
 	}
 
-	public function add_post_by_id() {
-		if ( ! wp_verify_nonce( $_POST['nonce'], 'mlt-nonce' ) ) {
+	public function remove_by_id() {
+		if ( ! $this->check_security() ) {
 			wp_send_json_error( 'Nonce error.' );
 		}
 
-		$new_post_id = absint( $_POST['new_post_id'] );
-		$post_id     = absint( $_POST['post_id'] );
-		$blog_id     = absint( $_POST['blog_id'] );
+		$from_id = absint( $_POST['from_post_id'] );
+		$id      = absint( $_POST['post_id'] );
+		$blog_id = absint( $_POST['blog_id'] );
+		$type    = sanitize_text_field( $_POST['type'] );
 
-		if ( ! $new_post_id || ! $post_id || ! $blog_id ) {
+		if ( ! $from_id || ! $id || ! $blog_id ) {
 			wp_send_json_error( 'ID error.' );
+		}
+
+		$table_name = $type === 'term' ? 'mlt_term_to_term' : 'mlt_post_to_post';
+
+		$this->remove_id_from_table( $id, $blog_id, $table_name );
+
+		$data = $this->button_clone( $from_id, $blog_id, $type );
+		$data .= $this->button_add_by_id( $from_id, $blog_id, $type );
+
+		wp_send_json_success( $data );
+	}
+
+	public function add_post_by_id() {
+		if ( ! $this->check_security() ) {
+			wp_send_json_error( 'Nonce error.' );
+		}
+
+		$new_id  = absint( $_POST['new_post_id'] );
+		$id      = absint( $_POST['post_id'] );
+		$blog_id = absint( $_POST['blog_id'] );
+		$type    = sanitize_text_field( $_POST['type'] );
+
+		if ( ! $new_id || ! $id || ! $blog_id ) {
+			wp_send_json_error( 'ID error.' );
+		}
+
+		if ( $type === 'term' ) {
+			switch_to_blog( $blog_id );
+			$term = get_term( $new_id );
+			restore_current_blog();
+			if ( ! $term ) {
+				wp_send_json_error( 'Term ID error.' );
+			} else {
+				$this->add_id_to_table( $id, $new_id, $blog_id, 'mlt_term_to_term' );
+				$data = $this->button_edit( $new_id, $blog_id, 'term' );
+				$data .= $this->button_remove( $id, $new_id, $blog_id, 'term' );
+				wp_send_json_success( $data );
+			}
 		}
 
 		switch_to_blog( $blog_id );
 
-		$post = get_post( $new_post_id );
+		$post = get_post( $new_id );
 
 		restore_current_blog();
 
@@ -318,34 +438,44 @@ class Multilang {
 			wp_send_json_error( 'ID error.' );
 		}
 
-		$this->add_id_to_table( $post_id, $new_post_id, $blog_id, 'mlt_post_to_post' );
+		$this->add_id_to_table( $id, $new_id, $blog_id, 'mlt_post_to_post' );
 
-		$data = $this->button_edit( $new_post_id, $blog_id );
+		$data = $this->button_edit( $new_id, $blog_id );
+		$data .= $this->button_remove( $id, $new_id, $blog_id, $type );
 
 		wp_send_json_success( $data );
 	}
 
 	public function generate() {
-		if ( ! wp_verify_nonce( $_POST['nonce'], 'mlt-nonce' ) ) {
+		if ( ! $this->check_security() ) {
 			wp_send_json_error( 'Nonce error.' );
 		}
 
-		$post_id = absint( $_POST['post_id'] );
+		$id      = absint( $_POST['post_id'] );
 		$blog_id = absint( $_POST['blog_id'] );
+		$type    = sanitize_text_field( $_POST['type'] );
 
-		if ( ! $post_id || ! $blog_id ) {
+		if ( ! $id || ! $blog_id ) {
 			wp_send_json_error( 'ID error.' );
 		}
 
 		$this->to_blog_id = $blog_id;
-		$post             = get_post( $post_id );
-		$post_taxonomies  = get_post_taxonomies( $post );
-		$new_post_data    = array(
+
+		if ( $type === 'term' ) {
+			$new_term_id = (int) $this->clone_term( $id, $blog_id );
+			$data        = $this->button_edit( $new_term_id, $blog_id, 'term' );
+			$data        .= $this->button_remove( $id, $new_term_id, $blog_id, 'term' );
+			wp_send_json_success( $data );
+		}
+
+		$post            = get_post( $id );
+		$post_taxonomies = get_post_taxonomies( $post );
+		$new_post_data   = array(
 			'post_type'    => $post->post_type,
 			'post_title'   => $post->post_title,
 			'post_status'  => 'draft',
 			'post_content' => $this->parse_content( $post->post_content ), // clone media files
-			'meta_input'   => $this->clone_acf_fields( $post_id )
+			'meta_input'   => $this->clone_acf_fields( $id )
 		);
 
 		// clone terms
@@ -363,10 +493,6 @@ class Multilang {
 							case 'category':
 								$new_post_data['post_category'][] = $new_term_id;
 								break;
-							case 'post_tag':
-//								$new_post_data['tags_input'][] = $new_term_id;
-								$new_post_data['tax_input'][ $post_taxonomy ][] = $new_term_id;
-								break;
 							default:
 								$new_post_data['tax_input'][ $post_taxonomy ][] = $new_term_id;
 						}
@@ -376,7 +502,7 @@ class Multilang {
 		}
 
 		// clone page template
-		if ( $page_template = get_post_meta( $post_id, '_wp_page_template', true ) ) {
+		if ( $page_template = get_post_meta( $id, '_wp_page_template', true ) ) {
 			$new_post_data['meta_input']['_wp_page_template'] = $page_template;
 		}
 
@@ -390,9 +516,10 @@ class Multilang {
 			wp_send_json_error( $new_post_id->get_error_message() );
 		}
 
-		$this->add_id_to_table( $post_id, $new_post_id, $blog_id, 'mlt_post_to_post' );
+		$this->add_id_to_table( $id, $new_post_id, $blog_id, 'mlt_post_to_post' );
 
 		$data = $this->button_edit( $new_post_id, $blog_id );
+		$data .= $this->button_remove( $id, $new_post_id, $blog_id, $type );
 
 		wp_send_json_success( $data );
 	}
@@ -413,20 +540,21 @@ class Multilang {
 		return count( $this->get_sites() );
 	}
 
-	private function button_translate( $post_id, $blog_id ) : string {
-		if ( ! $post_id || ! $blog_id ) {
+	private function button_clone( $id, $blog_id, $type = 'post' ) : string {
+		if ( ! $id || ! $blog_id ) {
 			return '';
 		}
 
 		return sprintf(
-			'<div class="mlt-translate"><button class="mltTranslate button button-primary" data-post_id="%s" data-blog_id="%s">Translate</button><span class="spinner"></span></div>',
-			esc_attr( $post_id ),
-			esc_attr( $blog_id )
+			'<div class="mlt-translate"><button class="mltTranslate button button-primary" data-post_id="%s" data-blog_id="%s" data-type="%s">Clone</button><span class="spinner"></span></div>',
+			esc_attr( $id ),
+			esc_attr( $blog_id ),
+			esc_attr( $type )
 		);
 	}
 
-	private function button_edit( $post_id, $blog_id ) : string {
-		if ( ! $post_id || ! $blog_id ) {
+	private function button_edit( $id, $blog_id, $type = 'post' ) : string {
+		if ( ! $id || ! $blog_id ) {
 			return '';
 		}
 
@@ -434,12 +562,39 @@ class Multilang {
 
 		$link = sprintf(
 			'<a class="button button-secondary" href="%s">Edit</a>',
-			get_edit_post_link( $post_id )
+			$type === 'term' ? get_edit_term_link( $id ) : get_edit_post_link( $id )
 		);
 
 		switch_to_blog( $this->current_blog_id );
 
 		return $link;
+	}
+
+	private function button_remove( $from_id, $to_id, $blog_id, $type = 'post' ) : string {
+		if ( ! $from_id || ! $to_id || ! $blog_id || $this->current_blog_id !== 1 ) {
+			return '';
+		}
+
+		return sprintf(
+			'<button class="button button-secondary mltRemoveId" data-from_post_id="%s" data-post_id="%s" data-blog_id="%s" data-type="%s">&times;</button><span class="spinner"></span>',
+			esc_attr( $from_id ),
+			esc_attr( $to_id ),
+			esc_attr( $blog_id ),
+			esc_attr( $type )
+		);
+	}
+
+	private function button_add_by_id( $from_id, $blog_id, $type = 'post' ) : string {
+		if ( ! $from_id || ! $blog_id ) {
+			return '';
+		}
+
+		return sprintf(
+			'<div class="mlt-add-by-id"><input type="number" name="add_id" placeholder="Add by ID"><button class="mltAddById button button-secondary" data-post_id="%s" data-blog_id="%s" data-type="%s">+</button><span class="spinner"></span></div>',
+			esc_attr( $from_id ),
+			esc_attr( $blog_id ),
+			esc_attr( $type )
+		);
 	}
 
 	private function get_row_from_table( $id, $table ) {
@@ -464,20 +619,24 @@ class Multilang {
 		return $results[0]->$column_name ?? null;
 	}
 
-	private function remove_id_from_table( $id, $table ) {
+	private function remove_id_from_table( $id, $blog_id, $table ) {
 		if ( ! $id || ! $table ) {
 			return;
 		}
 
+		if ( ! $blog_id ) {
+			$blog_id = $this->current_blog_id;
+		}
+
 		global $wpdb;
 
-		if ( $this->current_blog_id === 1 ) {
+		if ( $blog_id === 1 ) {
 			$wpdb->delete( $table, array( 'blog_1' => $id ) );
 		} else {
 			$wpdb->update(
 				$table,
-				array( "blog_{$this->current_blog_id}" => null ),
-				array( "blog_{$this->current_blog_id}" => $id )
+				array( "blog_{$blog_id}" => null ),
+				array( "blog_{$blog_id}" => $id )
 			);
 		}
 	}
@@ -586,11 +745,21 @@ class Multilang {
 
 		switch_to_blog( $to_blog_id );
 
-		$new_term = wp_insert_term( $term->name, $term->taxonomy, array(
-			'description' => $term->description,
-			'slug'        => $term->slug,
-			'parent'      => (int) $new_term_parent
-		) );
+		if ( $new_term_id = term_exists( $term->slug ) ) {
+			restore_current_blog();
+			$this->add_id_to_table( $term_id, $new_term_id, $to_blog_id, $table_name );
+
+			return $new_term_id;
+		}
+
+		$new_term = term_exists( $term->slug );
+		if ( ! $new_term ) {
+			$new_term = wp_insert_term( $term->name, $term->taxonomy, array(
+				'description' => $term->description,
+				'slug'        => $term->slug,
+				'parent'      => (int) $new_term_parent
+			) );
+		}
 
 		restore_current_blog();
 
@@ -780,6 +949,10 @@ class Multilang {
 		}
 
 		return $clone_post_meta;
+	}
+
+	private function check_security() {
+		return wp_verify_nonce( $_POST['nonce'], 'mlt-nonce' );
 	}
 }
 
