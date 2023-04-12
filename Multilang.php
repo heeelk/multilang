@@ -48,38 +48,53 @@ class Multilang {
 	}
 
 	public function get_languages() : array {
-		if ( $this->sites_count < 2 ) {
+		if ( $this->sites_count < 2 || is_404() ) {
 			return [];
 		}
 
-		$list      = [];
-		$object_id = get_queried_object_id();
+		$list   = [];
+		$object = get_queried_object();
 
 		foreach ( $this->get_sites() as $site ) {
-			$id = $this->get_id_from_table( $object_id, $site->blog_id, 'mlt_post_to_post' );
-			if ( ! $id ) {
-				continue;
+			$key = "blog_$site->blog_id";
+			$url = '#';
+
+			if ( is_page() || is_single() || is_home() ) {
+				$id = $this->get_id_from_table( $object->ID, $site->blog_id, 'mlt_post_to_post' );
+				if ( ! $id ) {
+					continue;
+				}
+
+				switch_to_blog( $site->blog_id );
+				$url = get_permalink( $id );
+				restore_current_blog();
+
+				$list[ $key ]['post_id'] = $id;
+			} elseif ( is_archive() ) {
+				$object = get_queried_object();
+				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id_from_table( $object->term_id, $site->blog_id, 'mlt_term_to_term' );
+				if ( ! $id ) {
+					continue;
+				}
+
+				switch_to_blog( $site->blog_id );
+				$term = get_term( $id, $object->taxonomy );
+				$url  = get_term_link( $term, $object->taxonomy );
+				restore_current_blog();
 			}
 
 			switch_to_blog( $site->blog_id );
-			$url    = get_permalink( $id );
-			$locale = get_option( 'WPLANG' );
+			$locale = strtolower( str_replace( '_', '-', get_option( 'WPLANG' ) ) );
 			restore_current_blog();
 
-			$locale = strtolower( str_replace( '_', '-', $locale ) );
-
-			$list["blog_$site->blog_id"] = array(
-				'name'    => get_network_option( 1, "mlt_lang_{$site->blog_id}" ),
-				'blog_id' => $site->blog_id,
-				'post_id' => $id,
-				'url'     => $url,
-				'locale'  => $locale,
-				'current' => $this->current_blog_id == $site->blog_id
-			);
-
+			$list[ $key ]['name']    = get_network_option( 1, "mlt_lang_{$site->blog_id}" );
+			$list[ $key ]['blog_id'] = $site->blog_id;
+			$list[ $key ]['url']     = $url;
+			$list[ $key ]['locale']  = $locale;
+			$list[ $key ]['current'] = $this->current_blog_id == $site->blog_id;
 		}
 
-		return $list;
+		return count( $list ) > 1 ? $list : [];
 	}
 
 	public function add_alternate_links() {
@@ -363,7 +378,7 @@ class Multilang {
 	}
 
 	public function remove_term_to_term( $term_id ) {
-		$this->remove_id_from_table( $term_id, 'mlt_term_to_term' );
+		$this->remove_id_from_table( $term_id, null, 'mlt_term_to_term' );
 	}
 
 	public function remove_post_to_post( $post_id, $post ) {
@@ -373,7 +388,7 @@ class Multilang {
 			$table = 'mlt_post_to_post';
 		}
 
-		$this->remove_id_from_table( $post_id, $table );
+		$this->remove_id_from_table( $post_id, null, $table );
 	}
 
 	public function remove_by_id() {
