@@ -44,7 +44,6 @@ function mltTranslate(button) {
             }
         })
         .then(({ success, data }) => {
-            console.log(data);
             if (success) {
                 parent.parentElement.innerHTML = data;
                 if (addByIdWrapper) {
@@ -84,7 +83,6 @@ function mltAddById(button) {
             }
         })
         .then(({ success, data }) => {
-            console.log(data);
             if (success) {
                 parent.parentElement.innerHTML = data;
             } else {
@@ -128,7 +126,6 @@ function mltRemoveId(button) {
             }
         })
         .then(({ success, data }) => {
-            console.log(data);
             if (success) {
                 parent.innerHTML = data;
             } else {

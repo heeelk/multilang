@@ -53,7 +53,7 @@ class Multilang {
 		foreach ( $taxonomies as $taxonomy ) {
 			add_filter( "manage_edit-{$taxonomy}_columns", array( $this, 'add_post_column' ) );
 			add_filter( "manage_{$taxonomy}_custom_column", array( $this, 'tax_column_content' ), 10, 3 );
-			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 2 );
+			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 1 );
 		}
 	}
 
@@ -70,7 +70,7 @@ class Multilang {
 			$url = '#';
 
 			if ( is_page() || is_single() || is_home() ) {
-				$id = $this->get_id_from_table( $object->ID, $site->blog_id, $this->tables['post'] );
+				$id = $this->get_id( $object->ID, false, $site->blog_id, $this->tables['post'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -82,7 +82,7 @@ class Multilang {
 				$list[ $key ]['post_id'] = $id;
 			} elseif ( is_archive() ) {
 				$object = get_queried_object();
-				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id_from_table( $object->term_id, $site->blog_id, $this->tables['term'] );
+				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id( $object->term_id, false, $site->blog_id, $this->tables['term'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -148,7 +148,7 @@ class Multilang {
 		foreach ( $this->tables as $table ) {
 			$sql_column = "ALTER TABLE {$table} ADD COLUMN blog_{$new_site->blog_id} int(11) NULL";
 			$wpdb->query( $sql_column );
-        }
+		}
 	}
 
 	public function delete_blog_column( $old_site ) {
@@ -269,7 +269,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_term_id = (int) $this->get_id_from_table( $term_id, $blog_id, $this->tables['term'] ) ) {
+				if ( $to_term_id = (int) $this->get_id( $term_id, false, $blog_id, $this->tables['term'] ) ) {
 					echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 					echo $this->button_remove( $term_id, $to_term_id, $blog_id, 'term' );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -282,7 +282,7 @@ class Multilang {
 		}
 	}
 
-	public function tax_edit_form_content( $term, $taxonomy ) {
+	public function tax_edit_form_content( $term ) {
 		if ( $this->sites_count < 2 ) {
 			return;
 		}
@@ -300,7 +300,7 @@ class Multilang {
 			echo '<tr class="form-field">';
 			echo '<th scope="row" style="vertical-align: middle">' . strtoupper( get_network_option( 1, $name ) ) . '</th>';
 			echo '<td style="display: inline-block">';
-			if ( $to_term_id = (int) $this->get_id_from_table( $term->term_id, $blog_id, $this->tables['term'] ) ) {
+			if ( $to_term_id = (int) $this->get_id( $term->term_id, false, $blog_id, $this->tables['term'] ) ) {
 				echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 				echo $this->button_remove( $term->term_id, $to_term_id, $blog_id, 'term' );
 			} elseif ( $this->current_blog_id === 1 ) {
@@ -329,7 +329,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_post_id = (int) $this->get_id_from_table( $post_id, $blog_id, $this->tables['post'] ) ) {
+				if ( $to_post_id = (int) $this->get_id( $post_id, false, $blog_id, $this->tables['post'] ) ) {
 					echo $this->button_edit( $to_post_id, $blog_id );
 					echo $this->button_remove( $post_id, $to_post_id, $blog_id );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -351,7 +351,7 @@ class Multilang {
 
 			$name       = "mlt_lang_{$site->blog_id}";
 			$label      = strtoupper( get_network_option( 1, $name ) );
-			$to_post_id = (int) $this->get_id_from_table( $post->ID, $site->blog_id, $this->tables['post'] );
+			$to_post_id = (int) $this->get_id( $post->ID, false, $site->blog_id, $this->tables['post'] );
 			$html       = '-';
 			if ( $to_post_id ) {
 				$html = $this->button_edit( $to_post_id, $site->blog_id );
@@ -414,7 +414,7 @@ class Multilang {
 			wp_send_json_error( 'ID error.' );
 		}
 
-		$this->remove_id_from_table( $id, $blog_id, $this->tables[$type] );
+		$this->remove_id_from_table( $id, $blog_id, $this->tables[ $type ] );
 
 		$data = $this->button_clone( $from_id, $blog_id, $type );
 		$data .= $this->button_add_by_id( $from_id, $blog_id, $type );
@@ -427,13 +427,17 @@ class Multilang {
 			wp_send_json_error( 'Nonce error.' );
 		}
 
-		$new_id  = absint( $_POST['new_post_id'] );
 		$id      = absint( $_POST['post_id'] );
+		$new_id  = absint( $_POST['new_post_id'] );
 		$blog_id = absint( $_POST['blog_id'] );
 		$type    = sanitize_text_field( $_POST['type'] );
 
-		if ( ! $new_id || ! $id || ! $blog_id ) {
+		if ( ! $id || ! $new_id || ! $blog_id ) {
 			wp_send_json_error( 'ID error.' );
+		}
+
+		if ( ! empty( $this->get_row( $new_id, $blog_id, $this->tables[ $type ] ) ) ) {
+			wp_send_json_error( 'ID already added.' );
 		}
 
 		if ( $type === 'term' ) {
@@ -443,7 +447,7 @@ class Multilang {
 			if ( ! $term ) {
 				wp_send_json_error( 'Term ID error.' );
 			} else {
-				$this->add_id_to_table( $id, $new_id, $blog_id, $this->tables[$type] );
+				$this->add_id( $id, $new_id, $blog_id, $this->tables[ $type ] );
 				$data = $this->button_edit( $new_id, $blog_id, $type );
 				$data .= $this->button_remove( $id, $new_id, $blog_id, $type );
 				wp_send_json_success( $data );
@@ -460,7 +464,7 @@ class Multilang {
 			wp_send_json_error( 'ID error.' );
 		}
 
-		$this->add_id_to_table( $id, $new_id, $blog_id, $this->tables['post'] );
+		$this->add_id( $id, $new_id, $blog_id, $this->tables['post'] );
 
 		$data = $this->button_edit( $new_id, $blog_id );
 		$data .= $this->button_remove( $id, $new_id, $blog_id, $type );
@@ -538,7 +542,7 @@ class Multilang {
 			wp_send_json_error( $new_post_id->get_error_message() );
 		}
 
-		$this->add_id_to_table( $id, $new_post_id, $blog_id, $this->tables['post'] );
+		$this->add_id( $id, $new_post_id, $blog_id, $this->tables['post'] );
 
 		$data = $this->button_edit( $new_post_id, $blog_id );
 		$data .= $this->button_remove( $id, $new_post_id, $blog_id, $type );
@@ -619,24 +623,28 @@ class Multilang {
 		);
 	}
 
-	private function get_row_from_table( $id, $table ) {
-		if ( ! $id || ! $table ) {
+	private function get_row( $id, $blog_id, $table ) {
+		if ( ! $id || ! $blog_id || ! $table ) {
 			return [];
 		}
 
 		global $wpdb;
 
-		return $wpdb->get_results( "SELECT * FROM {$table} WHERE blog_{$this->current_blog_id} = {$id}" );
+		return $wpdb->get_results( "SELECT * FROM {$table} WHERE blog_{$blog_id} = {$id}" );
 	}
 
-	private function get_id_from_table( $id, $blog_id, $table ) {
-		if ( ! $id || ! $blog_id || ! $table ) {
+	private function get_id( $from_id, $from_blog_id = false, $to_blog_id, $table ) {
+		if ( ! $from_id || ! $to_blog_id || ! $table ) {
 			return null;
 		}
 
+		if ( ! $from_blog_id ) {
+			$from_blog_id = $this->current_blog_id;
+		}
+
 		global $wpdb;
-		$column_name = "blog_$blog_id";
-		$results     = $wpdb->get_results( "SELECT {$column_name} FROM {$table} WHERE blog_{$this->current_blog_id} = {$id}" );
+		$column_name = "blog_$to_blog_id";
+		$results     = $wpdb->get_results( "SELECT {$column_name} FROM {$table} WHERE blog_{$from_blog_id} = {$from_id}" );
 
 		return $results[0]->$column_name ?? null;
 	}
@@ -663,13 +671,13 @@ class Multilang {
 		}
 	}
 
-	private function add_id_to_table( $from_id, $to_id, $to_blog_id, $table ) {
+	private function add_id( $from_id, $to_id, $to_blog_id, $table ) {
 		if ( ! $from_id || ! $to_id || ! $to_blog_id || ! $table ) {
 			return;
 		}
 
 		global $wpdb;
-		$row = $this->get_row_from_table( $from_id, $table );
+		$row = $this->get_row( $from_id, $this->current_blog_id, $table );
 
 		if ( ! empty( $row ) ) {
 			$wpdb->update(
@@ -702,7 +710,7 @@ class Multilang {
 			return $new_media_ids;
 		}
 
-		$new_media_id = $this->get_id_from_table( $media_id, $to_blog_id, $this->tables['media'] );
+		$new_media_id = $this->get_id( $media_id, false, $to_blog_id, $this->tables['media'] );
 
 		if ( $new_media_id ) {
 			return $new_media_id;
@@ -731,7 +739,7 @@ class Multilang {
 
 		restore_current_blog();
 
-		$this->add_id_to_table( $media_id, $new_media_id, $to_blog_id, $this->tables['media'] );
+		$this->add_id( $media_id, $new_media_id, $to_blog_id, $this->tables['media'] );
 
 		return $new_media_id;
 	}
@@ -742,7 +750,7 @@ class Multilang {
 		}
 
 		$table_name      = $this->tables['term'];
-		$new_term_id     = $this->get_id_from_table( $term_id, $to_blog_id, $table_name );
+		$new_term_id     = $this->get_id( $term_id, false, $to_blog_id, $table_name );
 		$new_term_parent = 0;
 
 		if ( $new_term_id ) {
@@ -750,7 +758,7 @@ class Multilang {
 		}
 
 		if ( (int) $term_id === 1 ) {
-			$this->add_id_to_table( $term_id, 1, $to_blog_id, $table_name );
+			$this->add_id( $term_id, 1, $to_blog_id, $table_name );
 
 			return 1;
 		}
@@ -768,7 +776,7 @@ class Multilang {
 
 		if ( $new_term_id = term_exists( $term->slug ) ) {
 			restore_current_blog();
-			$this->add_id_to_table( $term_id, $new_term_id, $to_blog_id, $table_name );
+			$this->add_id( $term_id, $new_term_id, $to_blog_id, $table_name );
 
 			return $new_term_id;
 		}
@@ -788,7 +796,7 @@ class Multilang {
 			return null;
 		}
 
-		$this->add_id_to_table( $term_id, $new_term['term_id'], $to_blog_id, $table_name );
+		$this->add_id( $term_id, $new_term['term_id'], $to_blog_id, $table_name );
 
 		return $new_term['term_id'];
 	}
