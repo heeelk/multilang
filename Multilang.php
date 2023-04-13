@@ -28,7 +28,7 @@ class Multilang {
 		add_action( 'add_meta_boxes', array( $this, 'add_meta_boxes' ) );
 		add_action( 'delete_post', array( $this, 'remove_post_to_post' ), 10, 2 );
 		add_action( 'delete_term', array( $this, 'remove_term_to_term' ), 10, 1 );
-		add_action( 'wp_initialize_site', array( $this, 'create_new_blog_column' ), 10, 1 );
+		add_action( 'wp_initialize_site', array( $this, 'create_new_blog_column' ), 10, 2 );
 		add_action( 'wp_uninitialize_site', array( $this, 'delete_blog_column' ) );
 
 		add_action( 'wp_ajax_mlt_generate', array( $this, 'generate' ) );
@@ -53,7 +53,7 @@ class Multilang {
 		foreach ( $taxonomies as $taxonomy ) {
 			add_filter( "manage_edit-{$taxonomy}_columns", array( $this, 'add_post_column' ) );
 			add_filter( "manage_{$taxonomy}_custom_column", array( $this, 'tax_column_content' ), 10, 3 );
-			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 1 );
+			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 2 );
 		}
 	}
 
@@ -142,7 +142,7 @@ class Multilang {
 		}
 	}
 
-	public function create_new_blog_column( $new_site ) {
+	public function create_new_blog_column( $new_site, $args ) {
 		global $wpdb;
 
 		foreach ( $this->tables as $table ) {
@@ -282,7 +282,7 @@ class Multilang {
 		}
 	}
 
-	public function tax_edit_form_content( $term ) {
+	public function tax_edit_form_content( $term, $taxonomy ) {
 		if ( $this->sites_count < 2 ) {
 			return;
 		}
