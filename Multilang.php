@@ -4,8 +4,17 @@ class Multilang {
 	private int $sites_count;
 	private int $current_blog_id;
 	private int $to_blog_id;
+	private array $tables = array(
+		'post'  => 'mlt_post_to_post',
+		'media' => 'mlt_media_to_media',
+		'term'  => 'mlt_term_to_term',
+	);
 
 	public function __construct() {
+		if ( ! is_multisite() ) {
+			wp_die( __( 'Multisite not activated!' ) );
+		}
+
 		$this->sites_count     = $this->sites_count();
 		$this->current_blog_id = get_current_blog_id();
 
@@ -14,12 +23,13 @@ class Multilang {
 		add_action( 'init', array( $this, 'init' ), 99 );
 		add_action( 'wp_head', array( $this, 'add_alternate_links' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'add_scripts' ) );
-		add_action( 'admin_notices', array( $this, 'notice' ) );
 		add_action( 'network_admin_menu', array( $this, 'add_menu_item' ) );
 		add_action( 'admin_init', array( $this, 'register_settings' ) );
 		add_action( 'add_meta_boxes', array( $this, 'add_meta_boxes' ) );
 		add_action( 'delete_post', array( $this, 'remove_post_to_post' ), 10, 2 );
 		add_action( 'delete_term', array( $this, 'remove_term_to_term' ), 10, 1 );
+		add_action( 'wp_initialize_site', array( $this, 'create_new_blog_column' ), 10, 1 );
+		add_action( 'wp_uninitialize_site', array( $this, 'delete_blog_column' ) );
 
 		add_action( 'wp_ajax_mlt_generate', array( $this, 'generate' ) );
 		add_action( 'wp_ajax_mlt_add_post_by_id', array( $this, 'add_post_by_id' ) );
@@ -43,7 +53,7 @@ class Multilang {
 		foreach ( $taxonomies as $taxonomy ) {
 			add_filter( "manage_edit-{$taxonomy}_columns", array( $this, 'add_post_column' ) );
 			add_filter( "manage_{$taxonomy}_custom_column", array( $this, 'tax_column_content' ), 10, 3 );
-			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 2 );
+			add_action( "{$taxonomy}_edit_form_fields", array( $this, 'tax_edit_form_content' ), 99, 1 );
 		}
 	}
 
@@ -60,7 +70,7 @@ class Multilang {
 			$url = '#';
 
 			if ( is_page() || is_single() || is_home() ) {
-				$id = $this->get_id_from_table( $object->ID, $site->blog_id, 'mlt_post_to_post' );
+				$id = $this->get_id_from_table( $object->ID, $site->blog_id, $this->tables['post'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -72,7 +82,7 @@ class Multilang {
 				$list[ $key ]['post_id'] = $id;
 			} elseif ( is_archive() ) {
 				$object = get_queried_object();
-				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id_from_table( $object->term_id, $site->blog_id, 'mlt_term_to_term' );
+				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id_from_table( $object->term_id, $site->blog_id, $this->tables['term'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -121,28 +131,36 @@ class Multilang {
 
 		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
 
-		$tables = array(
-			'post_to_post',
-			'media_to_media',
-			'term_to_term',
-		);
-
-		foreach ( $tables as $table ) {
-			$sql_table = "CREATE TABLE mlt_{$table} ( id int(11) NOT NULL AUTO_INCREMENT, PRIMARY KEY (id) ) {$wpdb->get_charset_collate()}";
+		foreach ( $this->tables as $table ) {
+			$sql_table = "CREATE TABLE {$table} ( id int(11) NOT NULL AUTO_INCREMENT, PRIMARY KEY (id) ) {$wpdb->get_charset_collate()}";
 			dbDelta( $sql_table );
 
 			foreach ( get_sites() as $site ) {
-				$sql_column = "ALTER TABLE mlt_{$table} ADD COLUMN blog_{$site->blog_id} int(11) NULL";
+				$sql_column = "ALTER TABLE {$table} ADD COLUMN blog_{$site->blog_id} int(11) NULL";
 				$wpdb->query( $sql_column );
 			}
 		}
 	}
 
-	public function activation() {
-		if ( ! is_multisite() ) {
-			wp_die( __( 'Multisite not activated!' ) );
-		}
+	public function create_new_blog_column( $new_site ) {
+		global $wpdb;
 
+		foreach ( $this->tables as $table ) {
+			$sql_column = "ALTER TABLE {$table} ADD COLUMN blog_{$new_site->blog_id} int(11) NULL";
+			$wpdb->query( $sql_column );
+        }
+	}
+
+	public function delete_blog_column( $old_site ) {
+		global $wpdb;
+
+		foreach ( $this->tables as $table ) {
+			$sql_column = "ALTER TABLE {$table} DROP COLUMN blog_{$old_site->blog_id}";
+			$wpdb->query( $sql_column );
+		}
+	}
+
+	public function activation() {
 		$this->create_tables();
 	}
 
@@ -153,15 +171,6 @@ class Multilang {
 			'ajaxurl' => admin_url( 'admin-ajax.php' ),
 			'nonce'   => wp_create_nonce( 'mlt-nonce' )
 		) );
-	}
-
-	public function notice() {
-		if ( ! is_multisite() ) {
-			printf(
-				'<div class="notice notice-error"><p>%s</p></div>',
-				__( '<strong>Multisite Translator:</strong> Multisite not activated!' )
-			);
-		}
 	}
 
 	public function field( $args ) {
@@ -260,7 +269,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_term_id = (int) $this->get_id_from_table( $term_id, $blog_id, 'mlt_term_to_term' ) ) {
+				if ( $to_term_id = (int) $this->get_id_from_table( $term_id, $blog_id, $this->tables['term'] ) ) {
 					echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 					echo $this->button_remove( $term_id, $to_term_id, $blog_id, 'term' );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -273,7 +282,7 @@ class Multilang {
 		}
 	}
 
-	public function tax_edit_form_content( $term, $taxonomy ) {
+	public function tax_edit_form_content( $term ) {
 		if ( $this->sites_count < 2 ) {
 			return;
 		}
@@ -291,7 +300,7 @@ class Multilang {
 			echo '<tr class="form-field">';
 			echo '<th scope="row" style="vertical-align: middle">' . strtoupper( get_network_option( 1, $name ) ) . '</th>';
 			echo '<td style="display: inline-block">';
-			if ( $to_term_id = (int) $this->get_id_from_table( $term->term_id, $blog_id, 'mlt_term_to_term' ) ) {
+			if ( $to_term_id = (int) $this->get_id_from_table( $term->term_id, $blog_id, $this->tables['term'] ) ) {
 				echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 				echo $this->button_remove( $term->term_id, $to_term_id, $blog_id, 'term' );
 			} elseif ( $this->current_blog_id === 1 ) {
@@ -320,7 +329,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_post_id = (int) $this->get_id_from_table( $post_id, $blog_id, 'mlt_post_to_post' ) ) {
+				if ( $to_post_id = (int) $this->get_id_from_table( $post_id, $blog_id, $this->tables['post'] ) ) {
 					echo $this->button_edit( $to_post_id, $blog_id );
 					echo $this->button_remove( $post_id, $to_post_id, $blog_id );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -342,7 +351,7 @@ class Multilang {
 
 			$name       = "mlt_lang_{$site->blog_id}";
 			$label      = strtoupper( get_network_option( 1, $name ) );
-			$to_post_id = (int) $this->get_id_from_table( $post->ID, $site->blog_id, 'mlt_post_to_post' );
+			$to_post_id = (int) $this->get_id_from_table( $post->ID, $site->blog_id, $this->tables['post'] );
 			$html       = '-';
 			if ( $to_post_id ) {
 				$html = $this->button_edit( $to_post_id, $site->blog_id );
@@ -378,14 +387,14 @@ class Multilang {
 	}
 
 	public function remove_term_to_term( $term_id ) {
-		$this->remove_id_from_table( $term_id, null, 'mlt_term_to_term' );
+		$this->remove_id_from_table( $term_id, null, $this->tables['post'] );
 	}
 
 	public function remove_post_to_post( $post_id, $post ) {
 		if ( $post->post_type === 'attachment' ) {
-			$table = 'mlt_media_to_media';
+			$table = $this->tables['media'];
 		} else {
-			$table = 'mlt_post_to_post';
+			$table = $this->tables['post'];
 		}
 
 		$this->remove_id_from_table( $post_id, null, $table );
@@ -405,9 +414,7 @@ class Multilang {
 			wp_send_json_error( 'ID error.' );
 		}
 
-		$table_name = $type === 'term' ? 'mlt_term_to_term' : 'mlt_post_to_post';
-
-		$this->remove_id_from_table( $id, $blog_id, $table_name );
+		$this->remove_id_from_table( $id, $blog_id, $this->tables[$type] );
 
 		$data = $this->button_clone( $from_id, $blog_id, $type );
 		$data .= $this->button_add_by_id( $from_id, $blog_id, $type );
@@ -436,9 +443,9 @@ class Multilang {
 			if ( ! $term ) {
 				wp_send_json_error( 'Term ID error.' );
 			} else {
-				$this->add_id_to_table( $id, $new_id, $blog_id, 'mlt_term_to_term' );
-				$data = $this->button_edit( $new_id, $blog_id, 'term' );
-				$data .= $this->button_remove( $id, $new_id, $blog_id, 'term' );
+				$this->add_id_to_table( $id, $new_id, $blog_id, $this->tables[$type] );
+				$data = $this->button_edit( $new_id, $blog_id, $type );
+				$data .= $this->button_remove( $id, $new_id, $blog_id, $type );
 				wp_send_json_success( $data );
 			}
 		}
@@ -453,7 +460,7 @@ class Multilang {
 			wp_send_json_error( 'ID error.' );
 		}
 
-		$this->add_id_to_table( $id, $new_id, $blog_id, 'mlt_post_to_post' );
+		$this->add_id_to_table( $id, $new_id, $blog_id, $this->tables['post'] );
 
 		$data = $this->button_edit( $new_id, $blog_id );
 		$data .= $this->button_remove( $id, $new_id, $blog_id, $type );
@@ -478,8 +485,8 @@ class Multilang {
 
 		if ( $type === 'term' ) {
 			$new_term_id = (int) $this->clone_term( $id, $blog_id );
-			$data        = $this->button_edit( $new_term_id, $blog_id, 'term' );
-			$data        .= $this->button_remove( $id, $new_term_id, $blog_id, 'term' );
+			$data        = $this->button_edit( $new_term_id, $blog_id, $type );
+			$data        .= $this->button_remove( $id, $new_term_id, $blog_id, $type );
 			wp_send_json_success( $data );
 		}
 
@@ -531,7 +538,7 @@ class Multilang {
 			wp_send_json_error( $new_post_id->get_error_message() );
 		}
 
-		$this->add_id_to_table( $id, $new_post_id, $blog_id, 'mlt_post_to_post' );
+		$this->add_id_to_table( $id, $new_post_id, $blog_id, $this->tables['post'] );
 
 		$data = $this->button_edit( $new_post_id, $blog_id );
 		$data .= $this->button_remove( $id, $new_post_id, $blog_id, $type );
@@ -695,8 +702,7 @@ class Multilang {
 			return $new_media_ids;
 		}
 
-		$table_name   = 'mlt_media_to_media';
-		$new_media_id = $this->get_id_from_table( $media_id, $to_blog_id, $table_name );
+		$new_media_id = $this->get_id_from_table( $media_id, $to_blog_id, $this->tables['media'] );
 
 		if ( $new_media_id ) {
 			return $new_media_id;
@@ -725,7 +731,7 @@ class Multilang {
 
 		restore_current_blog();
 
-		$this->add_id_to_table( $media_id, $new_media_id, $to_blog_id, $table_name );
+		$this->add_id_to_table( $media_id, $new_media_id, $to_blog_id, $this->tables['media'] );
 
 		return $new_media_id;
 	}
@@ -735,7 +741,7 @@ class Multilang {
 			return null;
 		}
 
-		$table_name      = 'mlt_term_to_term';
+		$table_name      = $this->tables['term'];
 		$new_term_id     = $this->get_id_from_table( $term_id, $to_blog_id, $table_name );
 		$new_term_parent = 0;
 
@@ -936,7 +942,7 @@ class Multilang {
 	}
 
 	private function clone_acf_fields( $post_id ) : array {
-		if ( ! $post_id ) {
+		if ( ! $post_id || ! class_exists( 'ACF' ) ) {
 			return [];
 		}
 
