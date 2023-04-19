@@ -1,0 +1,64 @@
+.mlt-metabox {
+    display: -ms-grid;
+    display: grid;
+    -ms-grid-columns: auto 10px 1fr;
+    grid-template-columns: auto 1fr;
+    gap: 10px;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+}
+
+.mlt-translate, .mlt-add-by-id {
+    display: -webkit-box;
+    display: -ms-flexbox;
+    display: flex;
+    -webkit-box-align: center;
+    -ms-flex-align: center;
+    align-items: center;
+}
+
+.mlt-translate {
+    margin-left: 1px;
+}
+
+.mlt-translate button {
+    width: 136px;
+}
+
+.mlt-translate .spinner {
+    -ms-flex-negative: 0;
+    flex-shrink: 0;
+}
+
+.mlt-add-by-id {
+    margin-top: 5px;
+}
+
+.mlt-add-by-id input {
+    max-width: 100px;
+    margin-right: 5px;
+}
+
+.wp-list-table .mlt-add-by-id input {
+    max-width: 43px;
+}
+
+.wp-list-table .mlt-add-by-id input::-webkit-outer-spin-button,
+.wp-list-table .mlt-add-by-id input::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.wp-list-table .mlt-add-by-id input {
+    -moz-appearance: textfield; /* Firefox */
+}
+
+.wp-list-table .mlt-add-by-id input::placeholder {
+    color: transparent;
+}
+
+.mltRemoveId {
+    margin-left: 5px !important;
+    color: #b32d2e !important;
+    border-color: #b32d2e !important;
+}
