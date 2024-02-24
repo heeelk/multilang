@@ -930,7 +930,7 @@ class Multilang {
 		$block_data = $block['attrs']['data'];
 
 		foreach ( $block_data as $data_key => $data_item ) {
-            if ( ! is_string( $data_item ) && strpos( $data_item, 'field_' ) === false ) {
+            if ( ! is_string( $data_item ) || strpos( $data_item, 'field_' ) === false ) {
                 continue;
             }
 
