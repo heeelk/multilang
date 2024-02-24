@@ -923,7 +923,6 @@ class Multilang {
 	}
 
 	private function clone_acf_block( $block = [] ) {
-        WP_Logger($block, '1.log');
 		if ( empty( $block['attrs']['data'] ) ) {
 			return $block;
 		}
