@@ -70,7 +70,7 @@ class Multilang {
 			$url = '#';
 
 			if ( is_page() || is_single() || is_home() ) {
-				$id = $this->get_id( $object->ID, false, $site->blog_id, $this->tables['post'] );
+				$id = $this->get_id( $object->ID, $site->blog_id, $this->tables['post'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -82,7 +82,7 @@ class Multilang {
 				$list[ $key ]['post_id'] = $id;
 			} elseif ( is_archive() ) {
 				$object = get_queried_object();
-				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id( $object->term_id, false, $site->blog_id, $this->tables['term'] );
+				$id     = (int) $site->blog_id === $this->current_blog_id ? $object->term_id : $this->get_id( $object->term_id, $site->blog_id, $this->tables['term'] );
 				if ( ! $id ) {
 					continue;
 				}
@@ -269,7 +269,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_term_id = (int) $this->get_id( $term_id, false, $blog_id, $this->tables['term'] ) ) {
+				if ( $to_term_id = (int) $this->get_id( $term_id, $blog_id, $this->tables['term'] ) ) {
 					echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 					echo $this->button_remove( $term_id, $to_term_id, $blog_id, 'term' );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -300,7 +300,7 @@ class Multilang {
 			echo '<tr class="form-field">';
 			echo '<th scope="row" style="vertical-align: middle">' . strtoupper( get_network_option( 1, $name ) ) . '</th>';
 			echo '<td style="display: inline-block">';
-			if ( $to_term_id = (int) $this->get_id( $term->term_id, false, $blog_id, $this->tables['term'] ) ) {
+			if ( $to_term_id = (int) $this->get_id( $term->term_id, $blog_id, $this->tables['term'] ) ) {
 				echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 				echo $this->button_remove( $term->term_id, $to_term_id, $blog_id, 'term' );
 			} elseif ( $this->current_blog_id === 1 ) {
@@ -329,7 +329,7 @@ class Multilang {
 			$name = "mlt_lang_$blog_id";
 
 			if ( $column_name === $name ) {
-				if ( $to_post_id = (int) $this->get_id( $post_id, false, $blog_id, $this->tables['post'] ) ) {
+				if ( $to_post_id = (int) $this->get_id( $post_id, $blog_id, $this->tables['post'] ) ) {
 					echo $this->button_edit( $to_post_id, $blog_id );
 					echo $this->button_remove( $post_id, $to_post_id, $blog_id );
 				} elseif ( $this->current_blog_id === 1 ) {
@@ -351,7 +351,7 @@ class Multilang {
 
 			$name       = "mlt_lang_{$site->blog_id}";
 			$label      = strtoupper( get_network_option( 1, $name ) );
-			$to_post_id = (int) $this->get_id( $post->ID, false, $site->blog_id, $this->tables['post'] );
+			$to_post_id = (int) $this->get_id( $post->ID, $site->blog_id, $this->tables['post'] );
 			$html       = '-';
 			if ( $to_post_id ) {
 				$html = $this->button_edit( $to_post_id, $site->blog_id );
@@ -633,16 +633,13 @@ class Multilang {
 		return $wpdb->get_results( "SELECT * FROM {$table} WHERE blog_{$blog_id} = {$id}" );
 	}
 
-	private function get_id( $from_id, $from_blog_id = false, $to_blog_id, $table ) {
+	private function get_id( $from_id, $to_blog_id, $table ) {
 		if ( ! $from_id || ! $to_blog_id || ! $table ) {
 			return null;
 		}
 
-		if ( ! $from_blog_id ) {
-			$from_blog_id = $this->current_blog_id;
-		}
-
 		global $wpdb;
+		$from_blog_id = $this->current_blog_id;
 		$column_name = "blog_$to_blog_id";
 		$results     = $wpdb->get_results( "SELECT {$column_name} FROM {$table} WHERE blog_{$from_blog_id} = {$from_id}" );
 
@@ -710,7 +707,7 @@ class Multilang {
 			return $new_media_ids;
 		}
 
-		$new_media_id = $this->get_id( $media_id, false, $to_blog_id, $this->tables['media'] );
+		$new_media_id = $this->get_id( $media_id, $to_blog_id, $this->tables['media'] );
 
 		if ( $new_media_id ) {
 			return $new_media_id;
@@ -750,7 +747,7 @@ class Multilang {
 		}
 
 		$table_name      = $this->tables['term'];
-		$new_term_id     = $this->get_id( $term_id, false, $to_blog_id, $table_name );
+		$new_term_id     = $this->get_id( $term_id, $to_blog_id, $table_name );
 		$new_term_parent = 0;
 
 		if ( $new_term_id ) {
@@ -926,6 +923,7 @@ class Multilang {
 	}
 
 	private function clone_acf_block( $block = [] ) {
+        WP_Logger($block, '1.log');
 		if ( empty( $block['attrs']['data'] ) ) {
 			return $block;
 		}
@@ -933,7 +931,12 @@ class Multilang {
 		$block_data = $block['attrs']['data'];
 
 		foreach ( $block_data as $data_key => $data_item ) {
+            if ( ! is_string( $data_item ) && strpos( $data_item, 'field_' ) === false ) {
+                continue;
+            }
+
 			$acf_object = get_field_object( $data_item );
+
 			if ( ! $acf_object ) {
 				continue;
 			}
