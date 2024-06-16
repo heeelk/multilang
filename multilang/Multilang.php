@@ -3,6 +3,7 @@
 class Multilang {
 	private int $sites_count;
 	private int $current_blog_id;
+	private int $main_id;
 	private int $to_blog_id;
 	private array $tables = array(
 		'post'  => 'mlt_post_to_post',
@@ -17,6 +18,7 @@ class Multilang {
 
 		$this->sites_count     = $this->sites_count();
 		$this->current_blog_id = get_current_blog_id();
+		$this->main_id         = get_network_option( 1, 'mlt_main_id', 1 );
 
 		register_activation_hook( __DIR__ . '/multilang-plugin.php', array( $this, 'activation' ) );
 
@@ -94,10 +96,10 @@ class Multilang {
 			}
 
 			switch_to_blog( $site->blog_id );
-			$locale = strtolower( str_replace( '_', '-', get_option( 'WPLANG' ) ) );
+			$locale = strtolower( str_replace( '_', '-', get_option( 'WPLANG', 'en_US' ) ) );
 			restore_current_blog();
 
-			$list[ $key ]['name']    = get_network_option( 1, "mlt_lang_{$site->blog_id}" );
+			$list[ $key ]['name']    = get_network_option( 1, "mlt_lang_$site->blog_id" );
 			$list[ $key ]['blog_id'] = $site->blog_id;
 			$list[ $key ]['url']     = $url;
 			$list[ $key ]['locale']  = $locale;
@@ -132,21 +134,21 @@ class Multilang {
 		require_once( ABSPATH . 'wp-admin/includes/upgrade.php' );
 
 		foreach ( $this->tables as $table ) {
-			$sql_table = "CREATE TABLE {$table} ( id int(11) NOT NULL AUTO_INCREMENT, PRIMARY KEY (id) ) {$wpdb->get_charset_collate()}";
+			$sql_table = "CREATE TABLE $table ( id int(11) NOT NULL AUTO_INCREMENT, PRIMARY KEY (id) ) {$wpdb->get_charset_collate()}";
 			dbDelta( $sql_table );
 
 			foreach ( get_sites() as $site ) {
-				$sql_column = "ALTER TABLE {$table} ADD COLUMN blog_{$site->blog_id} int(11) NULL";
+				$sql_column = "ALTER TABLE $table ADD COLUMN blog_$site->blog_id int(11) NULL";
 				$wpdb->query( $sql_column );
 			}
 		}
 	}
 
-	public function create_new_blog_column( $new_site, $args ) {
+	public function create_new_blog_column( $new_site ) {
 		global $wpdb;
 
 		foreach ( $this->tables as $table ) {
-			$sql_column = "ALTER TABLE {$table} ADD COLUMN blog_{$new_site->blog_id} int(11) NULL";
+			$sql_column = "ALTER TABLE $table ADD COLUMN blog_$new_site->blog_id int(11) NULL";
 			$wpdb->query( $sql_column );
 		}
 	}
@@ -155,7 +157,7 @@ class Multilang {
 		global $wpdb;
 
 		foreach ( $this->tables as $table ) {
-			$sql_column = "ALTER TABLE {$table} DROP COLUMN blog_{$old_site->blog_id}";
+			$sql_column = "ALTER TABLE $table DROP COLUMN blog_$old_site->blog_id";
 			$wpdb->query( $sql_column );
 		}
 	}
@@ -192,26 +194,38 @@ class Multilang {
 			'multilang'
 		);
 		foreach ( $this->get_sites() as $site ) {
-			register_setting( 'multilang_settings', "mlt_lang_{$site->blog_id}", 'sanitize_text_field' );
+			register_setting( 'multilang_settings', "mlt_lang_$site->blog_id", 'sanitize_text_field' );
 			add_settings_field(
-				"mlt_lang_{$site->blog_id}",
-				"Site {$site->blog_id}",
+				"mlt_lang_$site->blog_id",
+				"Site $site->blog_id",
 				array( $this, 'field' ),
 				'multilang',
 				'multilang_settings_section',
 				array(
-					'name' => "mlt_lang_{$site->blog_id}"
+					'name' => "mlt_lang_$site->blog_id"
 				)
 			);
 		}
+		register_setting( 'multilang_settings', "mlt_main_id", 'sanitize_text_field' );
+		add_settings_field(
+			"mlt_main_id",
+			"Main language id",
+			array( $this, 'field' ),
+			'multilang',
+			'multilang_settings_section',
+			array(
+				'name' => "mlt_main_id"
+			)
+		);
 
 	}
 
 	public function settings_page() {
 		if ( isset( $_POST['action'] ) && $_POST['action'] === 'update' ) {
 			foreach ( $this->get_sites() as $site ) {
-				update_network_option( 1, "mlt_lang_{$site->blog_id}", sanitize_text_field( $_POST["mlt_lang_{$site->blog_id}"] ) );
+				update_network_option( 1, "mlt_lang_$site->blog_id", sanitize_text_field( $_POST["mlt_lang_$site->blog_id"] ) );
 			}
+			update_network_option( 1, "mlt_main_id", absint( $_POST["mlt_main_id"] ) );
 		}
 		?>
         <div class="wrap">
@@ -242,11 +256,11 @@ class Multilang {
 		}
 
 		foreach ( $this->get_sites() as $site ) {
-			if ( (int) $site->blog_id === $this->current_blog_id ) {
+			if ( (int) $site->blog_id === $this->current_blog_id || ! get_network_option( 1, "mlt_lang_$site->blog_id" ) ) {
 				continue;
 			}
 
-			$name             = "mlt_lang_{$site->blog_id}";
+			$name             = "mlt_lang_$site->blog_id";
 			$style            = "<style>.column-$name { width: 120px; }</style>";
 			$columns[ $name ] = strtoupper( get_network_option( 1, $name ) ) . $style;
 		}
@@ -272,7 +286,7 @@ class Multilang {
 				if ( $to_term_id = (int) $this->get_id( $term_id, $blog_id, $this->tables['term'] ) ) {
 					echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 					echo $this->button_remove( $term_id, $to_term_id, $blog_id, 'term' );
-				} elseif ( $this->current_blog_id === 1 ) {
+				} elseif ( $this->current_blog_id === $this->main_id ) {
 					echo $this->button_clone( $term_id, $blog_id, 'term' );
 					echo $this->button_add_by_id( $term_id, $blog_id, 'term' );
 				} else {
@@ -295,7 +309,7 @@ class Multilang {
 				continue;
 			}
 
-			$name = "mlt_lang_{$blog_id}";
+			$name = "mlt_lang_$blog_id";
 
 			echo '<tr class="form-field">';
 			echo '<th scope="row" style="vertical-align: middle">' . strtoupper( get_network_option( 1, $name ) ) . '</th>';
@@ -303,7 +317,7 @@ class Multilang {
 			if ( $to_term_id = (int) $this->get_id( $term->term_id, $blog_id, $this->tables['term'] ) ) {
 				echo $this->button_edit( $to_term_id, $blog_id, 'term' );
 				echo $this->button_remove( $term->term_id, $to_term_id, $blog_id, 'term' );
-			} elseif ( $this->current_blog_id === 1 ) {
+			} elseif ( $this->current_blog_id === $this->main_id ) {
 				echo $this->button_clone( $term->term_id, $blog_id, 'term' );
 				echo $this->button_add_by_id( $term->term_id, $site->blog_id, 'term' );
 			} else {
@@ -332,7 +346,7 @@ class Multilang {
 				if ( $to_post_id = (int) $this->get_id( $post_id, $blog_id, $this->tables['post'] ) ) {
 					echo $this->button_edit( $to_post_id, $blog_id );
 					echo $this->button_remove( $post_id, $to_post_id, $blog_id );
-				} elseif ( $this->current_blog_id === 1 ) {
+				} elseif ( $this->current_blog_id === $this->main_id ) {
 					echo $this->button_clone( $post_id, $blog_id );
 					echo $this->button_add_by_id( $post_id, $blog_id );
 				} else {
@@ -349,14 +363,14 @@ class Multilang {
 				continue;
 			}
 
-			$name       = "mlt_lang_{$site->blog_id}";
+			$name       = "mlt_lang_$site->blog_id";
 			$label      = strtoupper( get_network_option( 1, $name ) );
 			$to_post_id = (int) $this->get_id( $post->ID, $site->blog_id, $this->tables['post'] );
 			$html       = '-';
 			if ( $to_post_id ) {
 				$html = $this->button_edit( $to_post_id, $site->blog_id );
 				$html .= $this->button_remove( $post->ID, $to_post_id, $site->blog_id );
-			} elseif ( $this->current_blog_id === 1 ) {
+			} elseif ( $this->current_blog_id === $this->main_id ) {
 				$html = $this->button_clone( $post->ID, $site->blog_id );
 				$html .= $this->button_add_by_id( $post->ID, $site->blog_id );
 			}
@@ -597,7 +611,7 @@ class Multilang {
 	}
 
 	private function button_remove( $from_id, $to_id, $blog_id, $type = 'post' ) : string {
-		if ( ! $from_id || ! $to_id || ! $blog_id || $this->current_blog_id !== 1 ) {
+		if ( ! $from_id || ! $to_id || ! $blog_id || $this->current_blog_id !== $this->main_id ) {
 			return '';
 		}
 
@@ -630,7 +644,7 @@ class Multilang {
 
 		global $wpdb;
 
-		return $wpdb->get_results( "SELECT * FROM {$table} WHERE blog_{$blog_id} = {$id}" );
+		return $wpdb->get_results( "SELECT * FROM $table WHERE blog_$blog_id = $id" );
 	}
 
 	private function get_id( $from_id, $to_blog_id, $table ) {
@@ -640,8 +654,8 @@ class Multilang {
 
 		global $wpdb;
 		$from_blog_id = $this->current_blog_id;
-		$column_name = "blog_$to_blog_id";
-		$results     = $wpdb->get_results( "SELECT {$column_name} FROM {$table} WHERE blog_{$from_blog_id} = {$from_id}" );
+		$column_name  = "blog_$to_blog_id";
+		$results      = $wpdb->get_results( "SELECT $column_name FROM $table WHERE blog_$from_blog_id = $from_id" );
 
 		return $results[0]->$column_name ?? null;
 	}
@@ -657,13 +671,13 @@ class Multilang {
 
 		global $wpdb;
 
-		if ( $blog_id === 1 ) {
-			$wpdb->delete( $table, array( 'blog_1' => $id ) );
+		if ( $blog_id === $this->main_id ) {
+			$wpdb->delete( $table, array( "blog_$this->main_id" => $id ) );
 		} else {
 			$wpdb->update(
 				$table,
-				array( "blog_{$blog_id}" => null ),
-				array( "blog_{$blog_id}" => $id )
+				array( "blog_$blog_id" => null ),
+				array( "blog_$blog_id" => $id )
 			);
 		}
 	}
@@ -679,15 +693,15 @@ class Multilang {
 		if ( ! empty( $row ) ) {
 			$wpdb->update(
 				$table,
-				array( "blog_{$to_blog_id}" => $to_id ),
-				array( "blog_1" => $from_id )
+				array( "blog_$to_blog_id" => $to_id ),
+				array( "blog_$this->main_id" => $from_id )
 			);
 		} else {
 			$wpdb->insert(
 				$table,
 				array(
-					'blog_1'             => $from_id,
-					"blog_{$to_blog_id}" => $to_id
+					"blog_$this->main_id" => $from_id,
+					"blog_$to_blog_id"  => $to_id
 				)
 			);
 		}
@@ -930,9 +944,9 @@ class Multilang {
 		$block_data = $block['attrs']['data'];
 
 		foreach ( $block_data as $data_key => $data_item ) {
-            if ( ! is_string( $data_item ) || strpos( $data_item, 'field_' ) === false ) {
-                continue;
-            }
+			if ( ! is_string( $data_item ) || strpos( $data_item, 'field_' ) === false ) {
+				continue;
+			}
 
 			$acf_object = get_field_object( $data_item );
 
